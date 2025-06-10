@@ -15,6 +15,7 @@ def smartsheet_to_dataframe(sheet_id):
     return pd.DataFrame(rows, columns=columns)
 
 
+st.set_page_config(page_title='Inspector Schedule', page_icon='🧍🏻‍♀️', layout='wide')
 
 
 st.image(st.secrets['images']['logo'], width=100)
@@ -64,7 +65,7 @@ if escapia_file is not None:
     udf.Position       = udf.Position.astype(int)
     
     result             = pd.merge(left=turns, right=udf, on=['Unit_Code'], how='left')
-    result             = result[['Unit_Code','Friendly_Name','Address','Bedrooms','Bathrooms','Housekeeper','Departing_Reservation_Number','Incoming_Reservation_Number','Incoming_Reservation_Type','Area','Position']]
+    result             = result[['Unit_Code','Friendly_Name','Address','Bedrooms','Bathrooms','Incoming_Reservation_Type','Area','Housekeeper','Departing_Reservation_Number','Incoming_Reservation_Number','Position']]
     result             = result.sort_values(by=['Position'])
     result             = result.reset_index(drop=True)
     
@@ -72,5 +73,25 @@ if escapia_file is not None:
     l.metric('B2Bs',   len(result['Unit_Code'].unique()))
     m.metric('Owners', turns[turns['Incoming_Reservation_Type'] == 'Owner'].shape[0])
     r.metric('Areas',  len(result['Area'].unique()))
+
+    st.subheader('To Be Assigned')
+
+    assign = result
+    assign = assign[['Unit_Code','Friendly_Name','Address','Bedrooms','Bathrooms','Incoming_Reservation_Type','Area']]
+    assign['Select'] = False
+
+    st.data_editor(assign,
+                   column_config={
+                       'Unit_Code': st.column_config.TextColumn(disabled=True),
+                       'Friendly_Name': st.column_config.TextColumn(disabled=True),
+                       'Address': st.column_config.TextColumn(disabled=True),
+                       'Bedrooms': st.column_config.NumberColumn(disabled=True),
+                       'Bathrooms': st.column_config.NumberColumn(disabled=True),
+                       'Incoming_Reservation_Type': st.column_config.TextColumn(disabled=True),
+                       'Area': st.column_config.TextColumn(disabled=True),
+                       'Select': st.column_config.CheckboxColumn(disabled=False)
+                   },
+                   use_container_width=True,
+                   )
 
     st.download_button('Download **Schedule**', data=result.to_csv(), file_name=f"Inspector_Schedule_{date.strftime('%m/%d/%Y')}.csv", mime='csv', use_container_width=True, type='primary')
