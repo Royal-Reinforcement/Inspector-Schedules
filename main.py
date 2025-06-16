@@ -97,4 +97,10 @@ if escapia_file is not None:
                    use_container_width=True,
                    )
 
-    st.download_button('Download **Schedule**', data=result.to_csv(), file_name=f"Inspector_Schedule_{date.strftime('%m/%d/%Y')}.csv", mime='csv', use_container_width=True, type='primary')
+    l, r = st.columns(2)
+
+    idf = smartsheet_to_dataframe(st.secrets['smartsheet']['sheets']['inspectors'])
+    idf['Summary'] = idf['Employee'] + ' - ' + idf['Role']
+
+    l.selectbox('Inspector', options=idf.Summary.unique(), label_visibility='collapsed')
+    r.button('Assign', use_container_width=True, type='primary')
