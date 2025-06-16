@@ -36,8 +36,9 @@ if escapia_file is not None:
     udf                = smartsheet_to_dataframe(st.secrets['smartsheet']['sheets']['order'])
     adf                = smartsheet_to_dataframe(st.secrets['smartsheet']['sheets']['areas'])
     df                 = pd.read_csv(escapia_file)
-    df                 = df[['Unit_Code','PropertyName','Bedrooms','Bathrooms','Housekeeper_Name','Reservation_Number','ReservationTypeDescription','Start_Date','Departure']]
-    df.columns         = ['Unit_Code','Friendly_Name','Bedrooms','Bathrooms','Housekeeper','Reservation_Number','Reservation_Type','Arrival','Departure']
+    df
+    df                 = df[['Unit_Code','PropertyName','SleepsMaximum','Bedrooms','Bathrooms','Housekeeper_Name','Reservation_Number','ReservationTypeDescription','Start_Date','Departure']]
+    df.columns         = ['Unit_Code','Friendly_Name','SleepsMaximum','Bedrooms','Bathrooms','Housekeeper','Reservation_Number','Reservation_Type','Arrival','Departure']
 
     date_columns       = ['Arrival','Departure']
 
@@ -54,8 +55,8 @@ if escapia_file is not None:
     arrivals.columns   = ['Unit_Code','Incoming_Reservation_Number','Incoming_Reservation_Type']
 
     departures         = df[df['Departure']  == date]
-    departures         = departures[['Unit_Code','Friendly_Name','Bedrooms','Bathrooms','Housekeeper','Reservation_Number']]
-    departures.columns = ['Unit_Code','Friendly_Name','Bedrooms','Bathrooms','Housekeeper','Departing_Reservation_Number']
+    departures         = departures[['Unit_Code','Friendly_Name','SleepsMaximum','Bedrooms','Bathrooms','Housekeeper','Reservation_Number']]
+    departures.columns = ['Unit_Code','Friendly_Name','SleepsMaximum','Bedrooms','Bathrooms','Housekeeper','Departing_Reservation_Number']
 
     turns              = pd.merge(left=departures, right=arrivals, on=['Unit_Code'])
 
@@ -65,7 +66,7 @@ if escapia_file is not None:
     udf.Position       = udf.Position.astype(int)
     
     result             = pd.merge(left=turns, right=udf, on=['Unit_Code'], how='left')
-    result             = result[['Unit_Code','Friendly_Name','Address','Bedrooms','Bathrooms','Incoming_Reservation_Type','Area','Housekeeper','Departing_Reservation_Number','Incoming_Reservation_Number','Position']]
+    result             = result[['Unit_Code','Friendly_Name','Address','SleepsMaximum','Bedrooms','Bathrooms','Incoming_Reservation_Type','Area','Housekeeper','Departing_Reservation_Number','Incoming_Reservation_Number','Position']]
     result             = result.sort_values(by=['Position'])
     result             = result.reset_index(drop=True)
     
@@ -77,7 +78,8 @@ if escapia_file is not None:
     st.subheader('To Be Assigned')
 
     assign = result
-    assign = assign[['Unit_Code','Friendly_Name','Address','Bedrooms','Bathrooms','Incoming_Reservation_Type','Area']]
+    assign = assign[['Unit_Code','Friendly_Name','Address','SleepsMaximum','Bedrooms','Bathrooms','Incoming_Reservation_Type','Area']]
+    assign = assign.copy()
     assign['Select'] = False
 
     st.data_editor(assign,
@@ -91,6 +93,7 @@ if escapia_file is not None:
                        'Area': st.column_config.TextColumn(disabled=True),
                        'Select': st.column_config.CheckboxColumn(disabled=False)
                    },
+                   hide_index=True,
                    use_container_width=True,
                    )
 
