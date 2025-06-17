@@ -36,7 +36,6 @@ if escapia_file is not None:
     udf                = smartsheet_to_dataframe(st.secrets['smartsheet']['sheets']['order'])
     adf                = smartsheet_to_dataframe(st.secrets['smartsheet']['sheets']['areas'])
     df                 = pd.read_csv(escapia_file)
-    df
     df                 = df[['Unit_Code','PropertyName','SleepsMaximum','Bedrooms','Bathrooms','Housekeeper_Name','Reservation_Number','ReservationTypeDescription','Start_Date','Departure']]
     df.columns         = ['Unit_Code','Friendly_Name','SleepsMaximum','Bedrooms','Bathrooms','Housekeeper','Reservation_Number','Reservation_Type','Arrival','Departure']
 
@@ -52,11 +51,11 @@ if escapia_file is not None:
 
     arrivals           = df[df['Arrival'] == date]
     arrivals           = arrivals[['Unit_Code','Reservation_Number','Reservation_Type']]
-    arrivals.columns   = ['Unit_Code','Incoming_Reservation_Number','Incoming_Reservation_Type']
+    arrivals.columns   = ['Unit_Code','Incoming_Reservation_Number','Incoming_Type']
 
     departures         = df[df['Departure']  == date]
     departures         = departures[['Unit_Code','Friendly_Name','SleepsMaximum','Bedrooms','Bathrooms','Housekeeper','Reservation_Number']]
-    departures.columns = ['Unit_Code','Friendly_Name','SleepsMaximum','Bedrooms','Bathrooms','Housekeeper','Departing_Reservation_Number']
+    departures.columns = ['Unit_Code','Friendly_Name','Sleeps','Bedrooms','Bathrooms','Housekeeper','Departing_Reservation_Number']
 
     turns              = pd.merge(left=departures, right=arrivals, on=['Unit_Code'])
 
@@ -66,32 +65,39 @@ if escapia_file is not None:
     udf.Position       = udf.Position.astype(int)
     
     result             = pd.merge(left=turns, right=udf, on=['Unit_Code'], how='left')
-    result             = result[['Unit_Code','Friendly_Name','Address','SleepsMaximum','Bedrooms','Bathrooms','Incoming_Reservation_Type','Area','Housekeeper','Departing_Reservation_Number','Incoming_Reservation_Number','Position']]
+    result             = result[['Unit_Code','Friendly_Name','Address','Sleeps','Bedrooms','Bathrooms','Incoming_Type','Area','Housekeeper','Departing_Reservation_Number','Incoming_Reservation_Number','Position']]
     result             = result.sort_values(by=['Position'])
     result             = result.reset_index(drop=True)
     
     l, m, r            = st.columns(3)
     l.metric('B2Bs',   len(result['Unit_Code'].unique()))
-    m.metric('Owners', turns[turns['Incoming_Reservation_Type'] == 'Owner'].shape[0])
+    m.metric('Owners', turns[turns['Incoming_Type'] == 'Owner'].shape[0])
     r.metric('Areas',  len(result['Area'].unique()))
 
-    st.subheader('To Be Assigned')
 
     assign = result
-    assign = assign[['Unit_Code','Friendly_Name','Address','SleepsMaximum','Bedrooms','Bathrooms','Incoming_Reservation_Type','Area']]
-    assign = assign.copy()
+    assign = assign[['Unit_Code','Friendly_Name','Address','Sleeps','Bedrooms','Bathrooms','Incoming_Type','Area']]
+    olhl   = smartsheet_to_dataframe(st.secrets['smartsheet']['sheets']['liaisons'])
+    assign = pd.merge(left=assign, right=olhl, on=['Unit_Code'], how='left')
     assign['Select'] = False
 
-    st.data_editor(assign,
+    if 'tba' not in st.session_state:
+        st.session_state['tba'] = assign
+
+    st.subheader(f'To Be Assigned ({assign.shape[0]})')
+    st.session_state['tba'] = st.data_editor(assign,
                    column_config={
                        'Unit_Code': st.column_config.TextColumn(disabled=True),
                        'Friendly_Name': st.column_config.TextColumn(disabled=True),
                        'Address': st.column_config.TextColumn(disabled=True),
+                       'Sleeps': st.column_config.NumberColumn(disabled=True),
                        'Bedrooms': st.column_config.NumberColumn(disabled=True),
                        'Bathrooms': st.column_config.NumberColumn(disabled=True),
                        'Incoming_Reservation_Type': st.column_config.TextColumn(disabled=True),
                        'Area': st.column_config.TextColumn(disabled=True),
-                       'Select': st.column_config.CheckboxColumn(disabled=False)
+                       'OL': st.column_config.TextColumn(disabled=True),
+                       'HL': st.column_config.TextColumn(disabled=True),
+                       'Select': st.column_config.CheckboxColumn(disabled=False),
                    },
                    hide_index=True,
                    use_container_width=True,
