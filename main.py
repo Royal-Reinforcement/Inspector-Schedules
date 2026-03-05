@@ -88,7 +88,11 @@ if escapia_file is not None:
         udf                = pd.merge(left=udf, right=adf, on=['Area'], how='left')
         udf                = udf[['Unit_Code','Address','Area','Order_y','Order_x']]
         udf.columns        = ['Unit_Code','Address','Area','Section','Position']
-        udf.Position       = udf.Position.astype("Int64")
+        udf.Position = (
+            pd.to_numeric(udf["Position"], errors="coerce")
+            .replace([np.inf, -np.inf], pd.NA)
+            .astype("Int64")
+            )
         
         result             = pd.merge(left=turns, right=udf, on=['Unit_Code'], how='left')
         result             = result[['Unit_Code','Friendly_Name','Address','Sleeps','Bedrooms','Bathrooms','Incoming_Type','Area','Departing_Reservation_Number','Incoming_Reservation_Number','Position']]
