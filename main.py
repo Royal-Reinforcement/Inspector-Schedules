@@ -215,7 +215,7 @@ if escapia_file is not None:
                     'Area': st.column_config.TextColumn(disabled=True),
                     'Position': st.column_config.NumberColumn(disabled=True),
                     'Inspector': st.column_config.SelectboxColumn(
-                        options=idf['Employee'].unique(),  
+                        options=idf['Employee'].unique().tolist(),  
                     ),
                 },
                 hide_index=True,
