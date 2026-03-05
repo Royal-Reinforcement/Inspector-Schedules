@@ -1,3 +1,4 @@
-streamlit
+numpy
 pandas
+streamlit
 smartsheet-python-sdk
