@@ -6,6 +6,8 @@ import datetime
 
 
 
+
+
 @st.cache_data
 def smartsheet_to_dataframe(sheet_id):
     smartsheet_client = smartsheet.Smartsheet(st.secrets['smartsheet']['access_token'])
@@ -14,6 +16,31 @@ def smartsheet_to_dataframe(sheet_id):
     rows              = []
     for row in sheet.rows: rows.append([cell.value for cell in row.cells])
     return pd.DataFrame(rows, columns=columns)
+
+
+
+
+
+def get_pod_from_amenity_string(row):
+
+    if 'POD' in row['Amenity_Notes']:
+        notes = row['Amenity_Notes'].split(' ')
+        return notes[-2]
+    
+    return None
+
+
+
+
+def get_unitcode_from_property_string(row):
+
+    if '(' in row['Property']:
+        return row['Property'].split('(')[1].split(')')[0]
+            
+    return None
+
+
+
 
 
 st.set_page_config(page_title='Inspector Schedule', page_icon='🧍🏻‍♀️', layout='wide')
@@ -28,138 +55,140 @@ st.info('Use occupancy, unit, and liaison data to help determine turn-day schedu
 
 
 with st.sidebar:
-    current_year = datetime.datetime.now().year
-    prior_year   = current_year - 1
-    report_url   = f"{st.secrets['escapia']['part_1']}{prior_year}{st.secrets['escapia']['part_2']}{current_year}{st.secrets['escapia']['part_3']}"
-
     st.title('Files')
-    st.link_button('Download **Escapia Report**', url=report_url, type='secondary', use_container_width=True, help='Housekeeping Arrival Departure Report - Excel 1 line')
-    escapia_file = st.file_uploader(label='**Housekeeping Arrival Departure Report**.csv', type='csv')
 
-    with st.expander('Continue where you left off?'):
-        st.success('Coming soon!')
-        # continue_file = st.file_uploader(label='**Inspector_Schedule_YYYY-MM-DD**.csv', type='csv')
+    st.info('**Amenity String Report**\n\nEscapia > Units > Reports > Amenity String Report> (Select All) > CSV')
 
-
-if 'locked_in_date' not in st.session_state:
-    st.session_state['locked_in_date'] = False
-
-
-if escapia_file is None:
-    st.session_state['locked_in_date'] = False
-
-if escapia_file is not None:
-
-    udf                = smartsheet_to_dataframe(st.secrets['smartsheet']['sheets']['order'])
-    adf                = smartsheet_to_dataframe(st.secrets['smartsheet']['sheets']['areas'])
+    escapia_file = st.file_uploader(
+        label='**Amenity String Report**.csv',
+        type='csv',
+        label_visibility='collapsed'
+        )
+    
+    st.info('**breezeway-task-custom-export**\n\nBreezeway > Tasks > Inspection > Auto Scheduled Inspections > Select all tasks > Export to CSV > Custom Report')
+    
+    breezeway_file = st.file_uploader(
+        label='**breezeway-task-custom-export**.csv',
+        type='csv',
+        label_visibility='collapsed'
+        )
     
 
-    df                 = pd.read_csv(escapia_file)
-    df                 = df[['Unit_Code','PropertyName','SleepsMaximum','Bedrooms','Bathrooms','Housekeeper_Name','Reservation_Number','ReservationTypeDescription','Start_Date','Departure']]
-    df.columns         = ['Unit_Code','Friendly_Name','SleepsMaximum','Bedrooms','Bathrooms','Housekeeper','Reservation_Number','Reservation_Type','Arrival','Departure']
+if escapia_file and breezeway_file:
 
-    date_columns       = ['Arrival','Departure']
+    if 'locked_in' not in st.session_state:
+        st.session_state['locked_in'] = False
 
-    for column in date_columns: df[column] = pd.to_datetime(df[column]).dt.date
+    udf                   = smartsheet_to_dataframe(st.secrets['smartsheet']['sheets']['order'])
+    adf                   = smartsheet_to_dataframe(st.secrets['smartsheet']['sheets']['areas'])
 
-    today              = datetime.date.today()
-    days_til_saturday  = (5 - today.weekday()) % 7
-    upcoming_saturday  = today + datetime.timedelta(days=days_til_saturday)
+    pdf                   = pd.read_csv(escapia_file)
+    pdf['Amenity_Notes']  = pdf['Amenity_Notes'].fillna('')
+    pdf['Amenity_Notes']  = pdf['Amenity_Notes'].str.upper()
+    pdf['Pod']            = pdf.apply(get_pod_from_amenity_string, axis=1)
+    pdf                   = pdf[['Unit_Code','Pod']]
     
-    l, r = st.columns(2)
 
-    date               = l.date_input('🗓️ Scheduling for Date', value=upcoming_saturday, label_visibility='collapsed', disabled=st.session_state['locked_in_date'])
+    df                    = pd.read_csv(breezeway_file)
+    df['Unit_Code']       = df.apply(get_unitcode_from_property_string, axis=1)
+    df                    = df.merge(pdf, on='Unit_Code', how='left')
+    df                    = df.merge(udf[['Area','Order','Unit_Code']], on='Unit_Code', how='left')
 
-    if r.button('Begin Scheduling', use_container_width=True, disabled=st.session_state['locked_in_date']):
-        st.session_state['locked_in_date'] = True
+    df                    = df[['Task title','Property','Due date','Area','Order','Pod','Assignees']]
+    df.columns            = ['Inspection','Unit','Inspection_Date','Area','Order','Pod','Assignees']
+
+    df['Inspection_Date'] = pd.to_datetime(df['Inspection_Date']).dt.date
+
+    c1, c2, c3            = st.columns(3)
+
+    c1.selectbox('Pod', options=df['Pod'].dropna().sort_values().unique(), key='pod_filter', disabled=st.session_state['locked_in'])
+
+    df = df[df['Pod'] == st.session_state['pod_filter']]
+
+    c2.selectbox('Inspection Date', options=df['Inspection_Date'].dropna().unique(), key='date_filter', disabled=st.session_state['locked_in'])
+
+    c3.number_input('Non-B2B Look Ahead (Days)', min_value=0, max_value=14, value=1, step=1, key='lookahead_filter', disabled=st.session_state['locked_in'])
+
+    if st.button('Build Schedule', use_container_width=True, type='secondary', disabled=st.session_state['locked_in'], ):
+        st.session_state['locked_in'] = True
         st.rerun()
-    
-    if st.session_state['locked_in_date']:
 
-        arrivals           = df[df['Arrival'] == date]
-        arrivals           = arrivals[['Unit_Code','Reservation_Number','Reservation_Type']]
-        arrivals.columns   = ['Unit_Code','Incoming_Reservation_Number','Incoming_Type']
+    if st.session_state['locked_in']:
+        
+        df = df[
+        ((df['Inspection'].str.contains(r'\(B2B\)', na=False)) & (df['Inspection_Date'] == st.session_state['date_filter'])) |
+        ((df['Inspection'].str.contains(r'\(non B2B\)', na=False)) & (df['Inspection_Date'] <= st.session_state['date_filter'] + datetime.timedelta(days=st.session_state['lookahead_filter'])))
+        ]
 
-        departures         = df[df['Departure']  == date]
-        departures         = departures[['Unit_Code','Friendly_Name','SleepsMaximum','Bedrooms','Bathrooms','Housekeeper','Reservation_Number']]
-        departures.columns = ['Unit_Code','Friendly_Name','Sleeps','Bedrooms','Bathrooms','Housekeeper','Departing_Reservation_Number']
-
-        turns              = pd.merge(left=departures, right=arrivals, on=['Unit_Code'])
-
-        udf                = pd.merge(left=udf, right=adf, on=['Area'], how='left')
-        udf                = udf[['Unit_Code','Address','Area','Order_y','Order_x']]
-        udf.columns        = ['Unit_Code','Address','Area','Section','Position']
-        udf.Position = (
-            pd.to_numeric(udf["Position"], errors="coerce")
-            .replace([np.inf, -np.inf], pd.NA)
-            .astype("Int64")
+        df['Assignees'] = df['Assignees'].fillna('').str.split(';').apply(
+            lambda x: [item.strip() for item in x if item]
             )
         
-        result             = pd.merge(left=turns, right=udf, on=['Unit_Code'], how='left')
-        result             = result[['Unit_Code','Friendly_Name','Address','Sleeps','Bedrooms','Bathrooms','Incoming_Type','Area','Departing_Reservation_Number','Incoming_Reservation_Number','Position']]
-        result             = result.sort_values(by=['Position'])
-        result             = result.reset_index(drop=True)
-        
-        l, m, r            = st.columns(3)
-        l.metric('B2Bs',   len(result['Unit_Code'].unique()))
-        m.metric('Owners', turns[turns['Incoming_Type'] == 'Owner'].shape[0])
-        r.metric('Areas',  len(result['Area'].unique()))
+        df = df.sort_values(by=['Order']).reset_index(drop=True)
+        df = df.drop(columns=['Pod'])
 
+        filter = df['Assignees'].apply(lambda x: any('.' in item for item in x) or len(x) > 1)
 
-        assign = result
-        assign = assign[['Unit_Code','Friendly_Name','Address','Sleeps','Bedrooms','Bathrooms','Incoming_Type','Area','Position']]
-        olhl   = smartsheet_to_dataframe(st.secrets['smartsheet']['sheets']['liaisons'])
-        olhl   = olhl[['Unit_Code','OL','HL']]
-        assign = pd.merge(left=assign, right=olhl, on=['Unit_Code'], how='left')
+        to_be_assigned   = df[filter]
+        already_assigned = df[~filter]
+
+        assign = to_be_assigned.copy()
         assign.insert(0, 'Select', False)
+
+        assigned = already_assigned.copy()
+        assigned.insert(0, 'Inspector', False)
+        assigned['Inspector'] = assigned['Assignees'].apply(lambda x: x[0])
+        assigned = assigned.drop(columns=['Assignees'])
 
         if 'tba' not in st.session_state:
             st.session_state['tba'] = assign
 
+        if 'assigned' not in st.session_state:
+            st.session_state['assigned'] = assigned
+
         st.subheader(f'To Be Assigned ({st.session_state['tba'].shape[0]})')
+        st.info('Any inspections with a dot assignee will be flagged for assignment.', icon='⚫️')
+        st.info('Any inspections with more than one assignee will be flagged for assignment to a sole assignee.', icon='👩🏽‍🤝‍👨🏻')
         selected_df = st.data_editor(
             st.session_state['tba'],
             column_config={
                 'Select': st.column_config.CheckboxColumn(disabled=False),
-                'Unit_Code': st.column_config.TextColumn(disabled=True),
-                'Friendly_Name': st.column_config.TextColumn(disabled=True),
-                'Address': st.column_config.TextColumn(disabled=True),
-                'Sleeps': st.column_config.NumberColumn(disabled=True),
-                'Bedrooms': st.column_config.NumberColumn(disabled=True),
-                'Bathrooms': st.column_config.NumberColumn(disabled=True),
-                'Incoming_Reservation_Type': st.column_config.TextColumn(disabled=True),
+                'Inspection': st.column_config.TextColumn(disabled=True),
+                'Inspection_Date': st.column_config.DateColumn(disabled=True),
                 'Area': st.column_config.TextColumn(disabled=True),
-                'Position': st.column_config.NumberColumn(disabled=True),
-                'OL': st.column_config.TextColumn(disabled=True),
-                'HL': st.column_config.TextColumn(disabled=True),
+                'Order': st.column_config.NumberColumn(disabled=True),
+                'Assignees': st.column_config.ListColumn(disabled=True),
                 },
                 hide_index=True,
-                use_container_width=True,
+                width='stretch',
                 )
 
-        l, r = st.columns(2)
+        l, r               = st.columns(2)
 
-        idf            = smartsheet_to_dataframe(st.secrets['smartsheet']['sheets']['inspectors'])
-        idf['Summary'] = idf['Employee'] + ' - ' + idf['Role']
+        idf                = smartsheet_to_dataframe(st.secrets['smartsheet']['sheets']['inspectors'])
+        idf['Summary']     = idf['Employee'] + ' - ' + idf['Role']
 
-        ols = olhl[['OL']].drop_duplicates()
-        ols.columns = ['Employee']
-        ols['Role'] = 'Owner Liaison'
-        ols['Summary'] = ols['Employee'] + ' - ' + ols['Role']
+        olhl               = smartsheet_to_dataframe(st.secrets['smartsheet']['sheets']['liaisons'])
+        olhl               = olhl[['Unit_Code','OL','HL']]
 
-        hls = olhl[['HL']].drop_duplicates()
-        hls.columns = ['Employee']
-        hls['Role'] = 'Home Liaison'
-        hls['Summary'] = hls['Employee'] + ' - ' + hls['Role']
+        ols                = olhl[['OL']].drop_duplicates()
+        ols.columns        = ['Employee']
+        ols['Role']        = 'Owner Liaison'
+        ols['Summary']     = ols['Employee'] + ' - ' + ols['Role']
 
-        idf = pd.concat([idf, ols, hls], ignore_index=True)
-        idf = idf.dropna(subset=['Summary'])
-        idf = idf.sort_values(by=['Employee'])
+        hls                = olhl[['HL']].drop_duplicates()
+        hls.columns        = ['Employee']
+        hls['Role']        = 'Home Liaison'
+        hls['Summary']     = hls['Employee'] + ' - ' + hls['Role']
+
+        idf                = pd.concat([idf, ols, hls], ignore_index=True)
+        idf                = idf.dropna(subset=['Summary'])
+        idf                = idf.sort_values(by=['Employee'])
 
         selected_inspector = l.selectbox('Inspector', options=idf.Summary.unique(), label_visibility='collapsed')
         inspector          = selected_inspector.split(' - ')[0]
 
-        selected = selected_df[selected_df['Select'] == True].shape[0]
+        selected           = selected_df[selected_df['Select'] == True].shape[0]
 
         if r.button(f'Assign **{selected}** to **{inspector}**', use_container_width=True, type='primary', disabled=selected == 0):
 
@@ -170,7 +199,7 @@ if escapia_file is not None:
             
                 sdf = selected_df[selected_df['Select'] == True].copy()
                 sdf.insert(0, 'Inspector', inspector)
-                sdf.drop(columns=['Select'], inplace=True)
+                sdf.drop(columns=['Select', 'Assignees'], inplace=True)
 
                 if 'assigned' not in st.session_state:
                     st.session_state['assigned'] = sdf
@@ -205,45 +234,47 @@ if escapia_file is not None:
             assigned_df = st.data_editor(
                 st.session_state['assigned'],
                 column_config={
-                    'Unit_Code': st.column_config.TextColumn(disabled=True),
-                    'Friendly_Name': st.column_config.TextColumn(disabled=True),
-                    'Address': st.column_config.TextColumn(disabled=True),
-                    'Sleeps': st.column_config.NumberColumn(disabled=True),
-                    'Bedrooms': st.column_config.NumberColumn(disabled=True),
-                    'Bathrooms': st.column_config.NumberColumn(disabled=True),
-                    'Incoming_Type': st.column_config.TextColumn(disabled=True),
+                    'Select': st.column_config.CheckboxColumn(disabled=False),
+                    'Inspection': st.column_config.TextColumn(disabled=True),
+                    'Assignees': st.column_config.ListColumn(disabled=True),
+                    'Inspection_Date': st.column_config.DateColumn(disabled=True),
                     'Area': st.column_config.TextColumn(disabled=True),
-                    'Position': st.column_config.NumberColumn(disabled=True),
+                    'Order': st.column_config.NumberColumn(disabled=True),
                     'Inspector': st.column_config.SelectboxColumn(
                         options=idf['Employee'].unique().tolist(),  
                     ),
                 },
                 hide_index=True,
-                use_container_width=True,
+                width='stretch',
                 )
             
             if not original.equals(assigned_df):
+
                 st.warning('Please save your changes. Not doing so will undo them on the next assignment.')
+
                 if st.button('Save Changes', use_container_width=True, type='secondary'):
                     st.session_state['assigned'] = assigned_df
                     st.rerun()
+
             
-            if st.session_state['tba'].empty:
+            final = st.session_state['assigned'].sort_values(['Inspector', 'Order']).copy()
+            final['Order'] = final['Order'].astype(int)
+            final.insert(0, 'Date', pd.to_datetime(st.session_state['date_filter']))
 
-                st.success('All B2Bs have been assigned an inspector!', icon='🙌')
-                st.info('Please review and finalize your assignments.', icon='👍')
-                final = st.session_state['assigned'].sort_values(['Inspector', 'Position']).copy()
-                final.insert(0, 'Date', date)
+            # if tba inspections do not include '(B2B)'
+            if not st.session_state['tba']['Inspection'].str.contains(r'\(B2B\)', na=False).any():
 
-                cleaners = df[['Unit_Code','Housekeeper']]
-                cleaners = cleaners.drop_duplicates()
-
-                final = pd.merge(final, cleaners, on='Unit_Code', how='left')
+                st.success('All B2Bs have been assigned an inspector!', icon='🔁')
+                st.info('Please review and finalize your assignments.', icon='🕵🏻‍♂️')
 
                 st.download_button(
-                    label=f'Download **Schedule** for **{date.strftime('%A, %m/%d/%y')}**',
+                    label=f'Download **Assigned** for **{st.session_state["date_filter"].strftime("%A, %m/%d/%y")}**',
                     data=final.to_csv(index=False),
-                    file_name=f'Inspectors_{date}.csv',
+                    file_name=f'Inspections_{st.session_state['date_filter'].strftime("%Y-%m-%d")}_{st.session_state['pod_filter'].title()}.csv',
                     mime='CSV',
                     use_container_width=True,
                     type='primary')
+            
+            else:
+                
+                st.warning('All B2B inspections must have an assignee before results can be provided.', icon='🔁')
