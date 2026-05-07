@@ -21,22 +21,26 @@ def smartsheet_to_dataframe(sheet_id):
 
 
 
-def get_pod_from_amenity_string(row):
-
-    if 'POD' in row['Amenity_Notes']:
-        notes = row['Amenity_Notes'].split(' ')
-        return notes[-2]
-    
-    return None
-
-
-
-
 def get_unitcode_from_property_string(row):
 
     if '(' in row['Property']:
         return row['Property'].split('(')[1].split(')')[0]
             
+    return None
+
+
+
+
+
+def get_pod_from_property_tags_string(row):
+
+    tags = row['Property tags'].split(';') if pd.notna(row['Property tags']) else []
+    tags = [tag.strip().upper() for tag in tags]
+
+    for tag in tags:
+        if 'POD' in tag:
+            return tag.split()[0]
+    
     return None
 
 
@@ -56,14 +60,6 @@ st.info('Use occupancy, unit, and liaison data to help determine turn-day schedu
 
 with st.sidebar:
     st.title('Files')
-
-    st.info('**Amenity String Report**\n\nEscapia > Units > Reports > Amenity String Report> (Select All) > CSV')
-
-    escapia_file = st.file_uploader(
-        label='**Amenity String Report**.csv',
-        type='csv',
-        label_visibility='collapsed'
-        )
     
     st.info('**breezeway-task-custom-export**\n\nBreezeway > Tasks > Inspection > Auto Scheduled Inspections > Select all tasks > Export to CSV > Custom Report')
     
@@ -74,24 +70,17 @@ with st.sidebar:
         )
     
 
-if escapia_file and breezeway_file:
+if breezeway_file:
 
     if 'locked_in' not in st.session_state:
         st.session_state['locked_in'] = False
 
     udf                   = smartsheet_to_dataframe(st.secrets['smartsheet']['sheets']['order'])
     adf                   = smartsheet_to_dataframe(st.secrets['smartsheet']['sheets']['areas'])
-
-    pdf                   = pd.read_csv(escapia_file)
-    pdf['Amenity_Notes']  = pdf['Amenity_Notes'].fillna('')
-    pdf['Amenity_Notes']  = pdf['Amenity_Notes'].str.upper()
-    pdf['Pod']            = pdf.apply(get_pod_from_amenity_string, axis=1)
-    pdf                   = pdf[['Unit_Code','Pod']]
     
-
     df                    = pd.read_csv(breezeway_file)
     df['Unit_Code']       = df.apply(get_unitcode_from_property_string, axis=1)
-    df                    = df.merge(pdf, on='Unit_Code', how='left')
+    df['Pod']             = df.apply(get_pod_from_property_tags_string, axis=1)
     df                    = df.merge(udf[['Area','Order','Unit_Code']], on='Unit_Code', how='left')
 
     df                    = df[['Task title','Property','Due date','Area','Order','Pod','Assignees']]
