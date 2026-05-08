@@ -53,7 +53,7 @@ st.set_page_config(page_title='Inspector Schedule', page_icon='🧍🏻‍♀️
 st.image(st.secrets['images']['logo'], width=100)
 
 st.title('Inspector Schedule Assistant')
-st.info('Use occupancy, unit, and liaison data to help determine turn-day schedules.')
+st.info('Use task data to help determine inspection schedules.')
 
 
 
